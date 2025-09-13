@@ -1,0 +1,78 @@
+name: Home Secrets Server
+version: "0.1.0"
+slug: home_secrets
+description: "Local secret/key server + Google OAuth/refresh for LAN apps"
+arch:
+  - aarch64
+  - armv7
+  - amd64
+startup: services
+init: false
+hassio_api: true
+hassio_role: default
+ingress: false
+panel_icon: mdi:key-variant
+ports:
+  8126/tcp: 8126
+ports_description:
+  8126/tcp: "HTTP API (FastAPI)"
+map:
+  - config:rw
+  - data:rw
+homeassistant_api: false
+host_network: true
+
+options:
+  # Security
+  api_key: "change-me"               # required in X-API-Key header from your apps
+  cors_allowed_origins:
+    - "http://localhost:5173"
+    - "http://192.168.20.0/24"       # you can put concrete origins (scheme+host+port)
+
+  # Secrets exposure
+  secret_prefix: "HS_"               # only env vars starting with this will be readable
+  extra_env:
+    HS_GOOGLE_SHEETS_KEY: ""         # add your per-app secrets here
+    HS_ANIMAL_GAME_API_KEY: ""
+
+  # Optional Git sync of your app code (if you want the add-on to pull code at boot)
+  git_sync:
+    enabled: false
+    repo: "https://github.com/rossgrambo/home-secrets.git"
+    branch: "main"
+    subdir: ""                       # if your app lives in a subfolder
+    # When enabled, the add-on clones to /data/app and prefers modules there.
+
+  # Google OAuth
+  google:
+    enabled: true
+    client_id: ""                    # from Google Cloud Console (OAuth client)
+    client_secret: ""                # keep this secret in HA options (not in Git)
+    scopes:
+      - "https://www.googleapis.com/auth/drive.readonly"
+      - "openid"
+      - "email"
+      - "profile"
+    redirect_base: "http://192.168.20.20:8126"  # must be in Google console as an authorized redirect
+    token_label: "default"           # label for stored tokens (lets you support multiples later)
+
+schema:
+  api_key: str
+  cors_allowed_origins:
+    - str
+  secret_prefix: str
+  extra_env:
+    str?
+  git_sync:
+    enabled: bool
+    repo: str
+    branch: str
+    subdir: str
+  google:
+    enabled: bool
+    client_id: str
+    client_secret: str
+    scopes:
+      - str
+    redirect_base: str
+    token_label: str
