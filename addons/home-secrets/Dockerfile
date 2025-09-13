@@ -1,17 +1,16 @@
+# https://developers.home-assistant.io/docs/add-ons/configuration#add-on-dockerfile
 ARG BUILD_FROM=ghcr.io/hassio-addons/base:17.1.0
-FROM ${BUILD_FROM}
+FROM $BUILD_FROM
 
 # Add Python & git
 RUN apk add --no-cache python3 py3-pip git
 
-# Copy app
-WORKDIR /app
-COPY requirements.txt /app/requirements.txt
-RUN pip3 install --no-cache-dir -r /app/requirements.txt
+# Install Python requirements
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 
-COPY app /app/app
-COPY run.sh /app/run.sh
-RUN chmod +x /app/run.sh
+# Copy root filesystem
+COPY rootfs /
 
-# S6 overlay expects /run.sh as entrypoint script via "init: false"
-CMD [ "/app/run.sh" ]
+# Make service scripts executable
+RUN chmod +x /etc/services.d/home-secrets/run /etc/services.d/home-secrets/finish

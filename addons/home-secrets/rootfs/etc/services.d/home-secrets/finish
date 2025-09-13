@@ -1,0 +1,6 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Home Secrets Server shutdown handler
+# ==============================================================================
+
+bashio::log.info "Shutting down Home Secrets Server..."

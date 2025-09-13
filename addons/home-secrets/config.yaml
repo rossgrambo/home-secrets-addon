@@ -1,60 +1,58 @@
+# https://developers.home-assistant.io/docs/add-ons/configuration#add-on-config
 name: Home Secrets Server
 version: "0.1.0"
-slug: home_secrets
+slug: home-secrets
 description: "Local secret/key server + Google OAuth/refresh for LAN apps"
+url: "https://github.com/rossgrambo/home-secrets-addon/tree/main/addons/home-secrets"
 arch:
   - aarch64
   - armv7
   - amd64
-startup: services
 init: false
-hassio_api: true
-hassio_role: default
-ingress: false
-panel_icon: mdi:key-variant
+map:
+  - share:rw
+  - data:rw
 ports:
   8126/tcp: 8126
 ports_description:
   8126/tcp: "HTTP API (FastAPI)"
-map:
-  - config:rw
-  - data:rw
-homeassistant_api: false
-host_network: true
+# Uncomment the image line below after setting up GitHub Actions and GHCR
+# image: "ghcr.io/rossgrambo/{arch}-addon-home-secrets"
 
 options:
   # Security
-  api_key: "change-me"               # required in X-API-Key header from your apps
+  api_key: "your-secure-api-key-here"  # required in X-API-Key header from your apps
   cors_allowed_origins:
-    - "http://localhost:5173"
-    - "http://192.168.20.0/24"       # you can put concrete origins (scheme+host+port)
+    - "http://localhost:3000"
+    - "http://localhost:5173"          # you can put concrete origins (scheme+host+port)
 
   # Secrets exposure
-  secret_prefix: "HS_"               # only env vars starting with this will be readable
+  secret_prefix: "HS_"                 # only env vars starting with this will be readable
   extra_env:
-    HS_GOOGLE_SHEETS_KEY: ""         # add your per-app secrets here
-    HS_ANIMAL_GAME_API_KEY: ""
+    HS_GOOGLE_SHEETS_KEY: ""           # add your per-app secrets here
+    HS_OPENAI_API_KEY: ""
 
   # Optional Git sync of your app code (if you want the add-on to pull code at boot)
   git_sync:
     enabled: false
-    repo: "https://github.com/rossgrambo/home-secrets.git"
+    repo: ""
     branch: "main"
-    subdir: ""                       # if your app lives in a subfolder
-    # When enabled, the add-on clones to /data/app and prefers modules there.
+    subdir: ""                         # if your app lives in a subfolder
 
   # Google OAuth
   google:
-    enabled: true
-    client_id: ""                    # from Google Cloud Console (OAuth client)
-    client_secret: ""                # keep this secret in HA options (not in Git)
+    enabled: false                     # set to true when you have OAuth credentials
+    client_id: ""                      # from Google Cloud Console (OAuth client)
+    client_secret: ""                  # keep this secret in HA options (not in Git)
     scopes:
       - "https://www.googleapis.com/auth/drive.readonly"
       - "openid"
       - "email"
       - "profile"
-    redirect_base: "http://192.168.20.20:8126"  # must be in Google console as an authorized redirect
-    token_label: "default"           # label for stored tokens (lets you support multiples later)
+    redirect_bases:                      # multiple redirect URLs for OAuth
+      - "http://192.168.1.20:8126"       # Home Assistant local IP
+      - "https://your-domain.com"         # Production domain
+    token_label: "default"             # label for stored tokens
 
 schema:
   api_key: str
@@ -62,17 +60,18 @@ schema:
     - str
   secret_prefix: str
   extra_env:
-    str?
+    str?: str?
   git_sync:
     enabled: bool
-    repo: str
-    branch: str
-    subdir: str
+    repo: str?
+    branch: str?
+    subdir: str?
   google:
     enabled: bool
-    client_id: str
-    client_secret: str
+    client_id: str?
+    client_secret: str?
     scopes:
       - str
-    redirect_base: str
-    token_label: str
+    redirect_bases:
+      - str
+    token_label: str?
