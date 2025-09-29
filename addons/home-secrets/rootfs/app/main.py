@@ -20,10 +20,11 @@ if raw:
     # If you put a CIDR in config, ignore it here; list concrete web origins you use.
     allowed_origins = [o.strip() for o in raw.split(",") if "://" in o]
 
+# Allow all origins for OAuth endpoints to prevent CORS issues
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins or [],
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins for OAuth functionality
+    allow_credentials=False,  # Must be False when allow_origins=["*"]
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )

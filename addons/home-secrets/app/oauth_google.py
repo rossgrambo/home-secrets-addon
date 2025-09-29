@@ -17,28 +17,36 @@ def _cfg():
     cid = os.getenv("GOOGLE_CLIENT_ID", "")
     cs = os.getenv("GOOGLE_CLIENT_SECRET", "")
     scopes = (os.getenv("GOOGLE_SCOPES", "") or "").split()
-    base = os.getenv("GOOGLE_REDIRECT_BASE", "http://localhost:8126")
     label = os.getenv("GOOGLE_TOKEN_LABEL", "default")
-    redirect_uri = f"{base.rstrip('/')}/oauth/google/callback"
-    return enabled, cid, cs, scopes, redirect_uri, label
+    return enabled, cid, cs, scopes, label
 
 def _now() -> int:
     return int(time.time())
 
 @router.get("/oauth/google/start")
-def google_start(x_api_key: str | None = Header(default=None)):
-    # Protect this start endpoint with the same API key header
-    require_api_key(x_api_key)
+def google_start(
+    redirect_uri: str,
+    x_api_key: str | None = Header(default=None),
+    api_key: str | None = None
+):
+    # Support API key from both header and query parameter
+    api_key_to_use = x_api_key or api_key
+    require_api_key(api_key_to_use)
 
-    enabled, cid, cs, scopes, redirect_uri, label = _cfg()
+    enabled, cid, cs, scopes, label = _cfg()
     if not enabled:
         raise HTTPException(400, "Google OAuth disabled")
     if not cid:
         raise HTTPException(500, "Missing GOOGLE_CLIENT_ID")
+    
+    # Validate that redirect_uri was provided
+    if not redirect_uri:
+        raise HTTPException(400, "redirect_uri parameter is required")
+    
     state = secrets.token_urlsafe(24)
-    # Store ephemeral state in token store
+    # Store ephemeral state in token store along with redirect_uri for validation
     stored = google_get("__state__") or {}
-    stored[state] = {"label": label, "ts": _now()}
+    stored[state] = {"label": label, "ts": _now(), "redirect_uri": redirect_uri}
     google_set("__state__", stored)
     params = {
         "client_id": cid,
@@ -54,7 +62,7 @@ def google_start(x_api_key: str | None = Header(default=None)):
 
 @router.get("/oauth/google/callback")
 def google_callback(code: str, state: str):
-    enabled, cid, cs, scopes, redirect_uri, label_default = _cfg()
+    enabled, cid, cs, scopes, label_default = _cfg()
     if not enabled:
         raise HTTPException(400, "Google OAuth disabled")
 
@@ -66,6 +74,9 @@ def google_callback(code: str, state: str):
         raise HTTPException(400, "Invalid state")
 
     label = ctx.get("label") or label_default
+    redirect_uri = ctx.get("redirect_uri")
+    if not redirect_uri:
+        raise HTTPException(400, "Invalid state: missing redirect_uri")
 
     data = {
         "code": code,
@@ -97,7 +108,7 @@ def google_callback(code: str, state: str):
     return {"status": "ok", "label": label, "has_refresh": bool(entry.get("refresh_token"))}
 
 def _refresh_if_needed(label: str):
-    cfg_enabled, cid, cs, scopes, redirect_uri, _ = _cfg()
+    cfg_enabled, cid, cs, scopes, _ = _cfg()
     entry = google_get(label)
     if not entry:
         raise HTTPException(404, f"No token for label '{label}'")
@@ -131,7 +142,7 @@ def _refresh_if_needed(label: str):
 @router.get("/oauth/google/token")
 def google_token(x_api_key: str | None = Header(default=None), label: str | None = None):
     require_api_key(x_api_key)
-    _, _, _, _, _, default_label = _cfg()
+    _, _, _, _, default_label = _cfg()
     entry = _refresh_if_needed(label or default_label)
     return {
         "access_token": entry["access_token"],

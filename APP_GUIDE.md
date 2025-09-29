@@ -31,10 +31,7 @@ google:
   scopes:
     - "https://www.googleapis.com/auth/drive.readonly"
     - "https://www.googleapis.com/auth/spreadsheets"
-  redirect_bases:                          # Multiple redirect URLs (register ALL in Google Console)
-    - "http://your-ha-ip:8126"             # Home Assistant local network
-    - "https://rossgrambo.github.io/toddler-lunch"  # Production domain
-    - "http://localhost:8000"              # Local development
+  # Note: redirect URLs are now automatically determined from the origin of OAuth requests
 ```
 
 ### 2. Find Your Home Assistant IP
@@ -124,9 +121,10 @@ curl -H "X-API-Key: your-secure-api-key-here" \
 First, a user must authorize your application through the browser:
 
 ```javascript
-// Step 1: Get authorization URL
+// Step 1: Get authorization URL with redirect_uri parameter
 async function startGoogleAuth() {
-  const response = await fetch('http://homeassistant.local:8126/oauth/google/start', {
+  const redirectUri = encodeURIComponent('http://localhost:8000/oauth/callback');
+  const response = await fetch(`http://homeassistant.local:8126/oauth/google/start?redirect_uri=${redirectUri}`, {
     headers: {
       'X-API-Key': 'your-secure-api-key-here'
     }
@@ -135,8 +133,18 @@ async function startGoogleAuth() {
   const data = await response.json();
   console.log('Visit this URL to authorize:', data.authorize_url);
   
-  // User visits the URL, completes OAuth, gets redirected back
+  // User visits the URL, completes OAuth, gets redirected to your specified redirect_uri
   // The system automatically stores the refresh token
+}
+
+// Alternative: Pass API key as query parameter
+async function startGoogleAuthWithQueryKey() {
+  const redirectUri = encodeURIComponent('http://localhost:8000/oauth/callback');
+  const apiKey = 'your-secure-api-key-here';
+  const response = await fetch(`http://homeassistant.local:8126/oauth/google/start?redirect_uri=${redirectUri}&api_key=${apiKey}`);
+  
+  const data = await response.json();
+  console.log('Visit this URL to authorize:', data.authorize_url);
 }
 ```
 
@@ -181,23 +189,26 @@ const sheetsResponse = await fetch('https://sheets.googleapis.com/v4/spreadsheet
 
 ```python
 # Python
-def get_google_token(api_key, ha_ip="homeassistant.local"):
-    url = f"http://{ha_ip}:8126/oauth/google/token"
-    headers = {"X-API-Key": api_key}
+def start_google_oauth(api_key, redirect_uri, ha_ip="homeassistant.local"):
+    from urllib.parse import quote
+    url = f"http://{ha_ip}:8126/oauth/google/start"
+    params = {
+        "redirect_uri": redirect_uri,
+        "api_key": api_key  # Can also use X-API-Key header instead
+    }
+    headers = {"X-API-Key": api_key}  # Alternative to query parameter
     
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, params=params, headers=headers)
     response.raise_for_status()
     
-    return response.json()["access_token"]
+    auth_data = response.json()
+    print(f"Visit this URL to authorize: {auth_data['authorize_url']}")
+    return auth_data["authorize_url"]
 
 # Usage
-access_token = get_google_token("your-api-key")
-
-# Use with Google APIs
-headers = {"Authorization": f"Bearer {access_token}"}
-sheets_response = requests.get(
-    "https://sheets.googleapis.com/v4/spreadsheets/your-sheet-id",
-    headers=headers
+auth_url = start_google_oauth(
+    api_key="your-api-key",
+    redirect_uri="http://localhost:8000/oauth/callback"
 )
 ```
 
@@ -297,6 +308,14 @@ class HomeSecretsClient:
         response.raise_for_status()
         return response.json()["value"]
     
+    def start_google_auth(self, redirect_uri: str) -> str:
+        """Start Google OAuth flow and return authorization URL."""
+        params = {"redirect_uri": redirect_uri}
+        url = f"{self.base_url}/oauth/google/start"
+        response = requests.get(url, params=params, headers=self.headers)
+        response.raise_for_status()
+        return response.json()["authorize_url"]
+    
     def get_google_token(self) -> str:
         """Get a fresh Google OAuth access token."""
         url = f"{self.base_url}/oauth/google/token"
@@ -313,7 +332,11 @@ def main():
         openai_key = secrets.get_secret("OPENAI_API_KEY")
         db_url = secrets.get_secret("DATABASE_URL")
         
-        # Get Google token
+        # Start OAuth flow (one-time setup)
+        auth_url = secrets.start_google_auth("http://localhost:8000/oauth/callback")
+        print(f"Visit this URL to authorize: {auth_url}")
+        
+        # Get Google token (after authorization)
         google_token = secrets.get_google_token()
         
         print("Secrets loaded successfully")
@@ -391,20 +414,24 @@ curl -H "X-API-Key: your-api-key-here" \
 
 ### Google Cloud Console Setup (OAuth)
 
-When using Google OAuth with multiple redirect URLs, you must register ALL redirect URIs in Google Cloud Console:
+With the new redirect URI parameter approach, you must register all potential redirect URIs in Google Cloud Console:
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Select your project → APIs & Services → Credentials
 3. Edit your OAuth 2.0 Client ID
-4. Add all redirect URIs from your config:
+4. Add all potential redirect URIs for your applications:
    ```
-   http://your-ha-ip:8126/oauth/google/callback
-   https://rossgrambo.github.io/toddler-lunch/oauth/google/callback
-   http://localhost:8000/oauth/google/callback
+   http://localhost:3000/oauth/callback           # Local development SPA
+   http://localhost:8000/oauth/callback           # Local development server
+   https://your-domain.com/oauth/callback         # Production SPA
+   https://api.your-domain.com/oauth/callback     # Production API server
    ```
 5. Save the configuration
 
-**Note**: The system will use the first URL in `redirect_bases` as the primary redirect URI for OAuth flow.
+**Important Notes**: 
+- Each application can specify its own redirect URI when calling `/oauth/google/start`
+- All redirect URIs must be pre-registered in Google Cloud Console
+- The system will automatically append `/oauth/google/callback` if not present in the redirect_uri parameter
 
 ### Network Configuration
 
