@@ -9,8 +9,11 @@ RUN apk add --no-cache python3 py3-pip git
 COPY requirements.txt /tmp/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 
-# Copy root filesystem
-COPY rootfs /
+# Copy service configuration
+COPY rootfs/etc /etc
+
+# Copy application code
+COPY app /app
 
 # Make service scripts executable
 RUN chmod +x /etc/services.d/home-secrets/run /etc/services.d/home-secrets/finish

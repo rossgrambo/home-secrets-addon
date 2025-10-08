@@ -33,12 +33,6 @@ app.add_middleware(
 app.include_router(secrets_router, prefix="")
 app.include_router(google_router, prefix="")
 
-# Log registered routes for debugging
-logger.info("Registered routes:")
-for route in app.routes:
-    if hasattr(route, 'path') and hasattr(route, 'methods'):
-        logger.info(f"  {route.methods} {route.path}")
-
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
@@ -181,7 +175,7 @@ def oauth_ui(request: Request):
                 
                 try {{
                     const redirectUri = `${{window.location.origin}}/oauth/google/callback`;
-                    const response = await fetch(`/oauth/google/start?redirect_uri=${{encodeURIComponent(redirectUri)}}`, {{
+                    const response = await fetch(`/oauth/google/start?redirect_uri=${{encodeURIComponent(redirectUri)}}&api_key=${{encodeURIComponent(apiKey)}}`, {{
                         headers: {{ 'X-API-Key': apiKey }}
                     }});
                     
@@ -231,3 +225,9 @@ def debug_env():
         "hs_secret_prefix": os.getenv("HS_SECRET_PREFIX"),
         "all_env_vars": [k for k in os.environ.keys() if k.startswith(("GOOGLE_", "HS_"))]
     }
+
+# Log registered routes for debugging (after all routes are defined)
+logger.info("Registered routes:")
+for route in app.routes:
+    if hasattr(route, 'path') and hasattr(route, 'methods'):
+        logger.info(f"  {route.methods} {route.path}")
