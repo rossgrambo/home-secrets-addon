@@ -5,8 +5,8 @@ import httpx
 import logging
 from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Request, Header
-from .storage import google_get, google_set
-from .secrets_api import require_api_key
+from storage import google_get, google_set
+from secrets_api import require_api_key
 
 logger = logging.getLogger(__name__)
 
