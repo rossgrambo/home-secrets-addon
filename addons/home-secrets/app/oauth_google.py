@@ -2,10 +2,13 @@ import os
 import time
 import secrets
 import httpx
+import logging
 from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Request, Header
 from .storage import google_get, google_set
 from .secrets_api import require_api_key
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -111,13 +114,13 @@ def _refresh_if_needed(label: str):
     cfg_enabled, cid, cs, scopes, _ = _cfg()
     entry = google_get(label)
     if not entry:
-        raise HTTPException(404, f"No token for label '{label}'")
+        raise HTTPException(404, f"No token for label '{label}'. Use /oauth to authenticate first.")
     if entry.get("access_token") and entry.get("expiry", 0) > _now():
         return entry
 
     refresh = entry.get("refresh_token")
     if not refresh:
-        raise HTTPException(409, "No refresh_token stored; re-run /oauth/google/start")
+        raise HTTPException(409, "No refresh_token stored. This usually happens when: 1) Initial OAuth didn't include 'offline' access, 2) Token was revoked, or 3) Refresh token expired. Please re-authenticate via /oauth")
 
     data = {
         "client_id": cid,
@@ -128,7 +131,16 @@ def _refresh_if_needed(label: str):
     with httpx.Client(timeout=20) as client:
         r = client.post(GOOGLE_TOKEN, data=data)
         if r.status_code != 200:
-            raise HTTPException(400, f"Refresh failed: {r.text}")
+            error_details = r.text
+            try:
+                error_json = r.json()
+                if error_json.get("error") == "invalid_grant":
+                    # Clear the bad token and provide helpful message
+                    google_set(label, {})
+                    raise HTTPException(400, "Refresh token has expired or been revoked. The token has been cleared. Please re-authenticate via /oauth to get a new token.")
+            except:
+                pass
+            raise HTTPException(400, f"Refresh failed: {error_details}")
         tok = r.json()
 
     entry["access_token"] = tok.get("access_token")
@@ -150,3 +162,56 @@ def google_token(x_api_key: str | None = Header(default=None), label: str | None
         "token_type": entry.get("token_type", "Bearer"),
         "scope": entry.get("scope"),
     }
+
+@router.get("/oauth/google/status")
+def google_status(x_api_key: str | None = Header(default=None), label: str | None = None):
+    require_api_key(x_api_key)
+    _, _, _, _, default_label = _cfg()
+    entry = google_get(label or default_label)
+    
+    if not entry:
+        return {"status": "no_token", "message": "No token found. Please authenticate first."}
+    
+    has_access = bool(entry.get("access_token"))
+    has_refresh = bool(entry.get("refresh_token"))
+    expiry = entry.get("expiry", 0)
+    is_expired = expiry <= _now()
+    
+    status = "ok"
+    message = "Token is valid and not expired"
+    
+    if not has_refresh:
+        status = "no_refresh_token"
+        message = "Missing refresh token. Re-authentication required."
+    elif is_expired and not has_access:
+        status = "expired_no_access"
+        message = "Token expired and no access token available"
+    elif is_expired:
+        status = "expired"
+        message = "Access token expired but can be refreshed"
+    
+    return {
+        "status": status,
+        "message": message,
+        "has_access_token": has_access,
+        "has_refresh_token": has_refresh,
+        "expires_at": expiry,
+        "expires_in_seconds": max(0, expiry - _now()),
+        "is_expired": is_expired,
+        "scope": entry.get("scope")
+    }
+
+@router.delete("/oauth/google/token")
+def google_delete_token(x_api_key: str | None = Header(default=None), label: str | None = None):
+    """Delete stored tokens for a label. Use this when tokens are corrupted or you want to start fresh."""
+    require_api_key(x_api_key)
+    _, _, _, _, default_label = _cfg()
+    target_label = label or default_label
+    
+    entry = google_get(target_label)
+    if not entry:
+        raise HTTPException(404, f"No token found for label '{target_label}'")
+    
+    google_set(target_label, {})
+    logger.info(f"Deleted tokens for label: {target_label}")
+    return {"status": "ok", "message": f"Tokens deleted for label '{target_label}'. Use /oauth to re-authenticate."}
